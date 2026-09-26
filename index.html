@@ -122,6 +122,10 @@
 
     button:hover { transform: translateY(-2px); background: #ffe98b; }
     button:active { transform: translateY(0); }
+    button:disabled { cursor: not-allowed; opacity: .5; transform: none; }
+    .boost-button { color: #fff; background: #e05232; }
+    .boost-button:hover { background: #f06a48; }
+    .boost-button:disabled { background: #76504b; }
 
     .touch { display: none; }
     .touch button { min-width: 52px; padding: 13px 15px; font-size: 18px; }
@@ -164,7 +168,10 @@
       <canvas id="game" tabindex="0" aria-label="Labirinto do jogo"></canvas>
       <div class="controls">
         <p class="hint">Teclado: setas ou WASD · Pegue os pontos e fuja do Vorcaro, o vampiro.</p>
-        <button id="restart" type="button">Recomeçar</button>
+        <div class="action-buttons">
+          <button id="boost" class="boost-button" type="button" disabled>⚡ Boost 10s</button>
+          <button id="restart" type="button">Recomeçar</button>
+        </div>
       </div>
       <div class="touch" aria-label="Controles direcionais">
         <button class="up" data-direction="up" type="button" aria-label="Cima">▲</button>
@@ -181,6 +188,7 @@
     const scoreElement = document.getElementById('score');
     const statusElement = document.getElementById('status');
     const restartButton = document.getElementById('restart');
+    const boostButton = document.getElementById('boost');
     const map = [
       '###################',
       '#........#........#',
@@ -207,11 +215,13 @@
       up: { x: 0, y: -1 }, down: { x: 0, y: 1 },
       left: { x: -1, y: 0 }, right: { x: 1, y: 0 }
     };
-    let player, ghost, dots, score, running, won, gameOver, nextDirection, lastTime, animationFrameId;
+    let player, ghost, dots, score, running, won, gameOver, nextDirection, lastTime, lastGhostMove, boostEndsAt, animationFrameId;
 
     function reset() {
       if (animationFrameId !== null && animationFrameId !== undefined) cancelAnimationFrame(animationFrameId);
       animationFrameId = null;
+      boostEndsAt = 0;
+      lastGhostMove = 0;
       player = { x: 10, y: 14, direction: { x: 0, y: 0 } };
       ghost = { x: 10, y: 9, direction: { x: 0, y: -1 } };
       dots = new Set();
@@ -225,6 +235,8 @@
       nextDirection = null;
       scoreElement.textContent = score;
       statusElement.textContent = 'Use as setas para começar';
+      boostButton.disabled = true;
+      boostButton.textContent = '⚡ Boost 10s';
       draw();
     }
 
@@ -239,8 +251,17 @@
         running = true;
         statusElement.textContent = 'Fuja do Vorcaro!';
         lastTime = performance.now();
+        lastGhostMove = lastTime;
+        boostButton.disabled = false;
         animationFrameId = requestAnimationFrame(loop);
       }
+    }
+
+    function activateBoost() {
+      if (!running || won || gameOver || boostEndsAt > performance.now()) return;
+      boostEndsAt = performance.now() + 10000;
+      boostButton.disabled = true;
+      boostButton.textContent = '⚡ Boost: 10s';
     }
 
     function move(entity, direction) {
@@ -273,7 +294,7 @@
       ghost.direction = choices[Math.random() < .72 ? 0 : Math.floor(Math.random() * choices.length)];
     }
 
-    function update() {
+    function update(time) {
       const previousPlayer = { x: player.x, y: player.y };
       const previousGhost = { x: ghost.x, y: ghost.y };
       if (nextDirection && isOpen(player.x + nextDirection.x, player.y + nextDirection.y)) player.direction = nextDirection;
@@ -283,8 +304,12 @@
         score += map[player.y][player.x] === 'o' ? 50 : 10;
         scoreElement.textContent = score;
       }
-      chooseGhostDirection();
-      move(ghost, ghost.direction);
+      const boosted = boostEndsAt > time;
+      if (time - lastGhostMove >= (boosted ? 230 : 145)) {
+        chooseGhostDirection();
+        move(ghost, ghost.direction);
+        lastGhostMove = time;
+      }
       const sameTile = player.x === ghost.x && player.y === ghost.y;
       const crossedPaths = player.x === previousGhost.x && player.y === previousGhost.y &&
         ghost.x === previousPlayer.x && ghost.y === previousPlayer.y;
@@ -292,11 +317,16 @@
         running = false;
         gameOver = true;
         statusElement.textContent = 'Vorcaro pegou Xandão!';
+        boostEndsAt = 0;
+        boostButton.textContent = '⚡ Boost 10s';
       } else if (dots.size === 0) {
         won = true;
         running = false;
         statusElement.textContent = 'Vitória! Xandão dominou o labirinto.';
+        boostEndsAt = 0;
+        boostButton.textContent = '⚡ Boost 10s';
       }
+      boostButton.disabled = !running || boostEndsAt > time;
     }
 
     function drawCharacter(emoji, centerX, centerY) {
@@ -340,8 +370,17 @@
         animationFrameId = null;
         return;
       }
-      if (time - lastTime >= 145) {
-        update();
+      if (boostEndsAt && time >= boostEndsAt) boostEndsAt = 0;
+      const boosted = boostEndsAt > time;
+      if (boosted) {
+        const secondsLeft = Math.ceil((boostEndsAt - time) / 1000);
+        boostButton.textContent = `⚡ Boost: ${secondsLeft}s`;
+      } else {
+        boostButton.textContent = '⚡ Boost 10s';
+        boostButton.disabled = !running;
+      }
+      if (time - lastTime >= (boosted ? 85 : 145)) {
+        update(time);
         lastTime = time;
       }
       draw();
@@ -359,6 +398,7 @@
     });
     document.querySelectorAll('[data-direction]').forEach(button => button.addEventListener('click', () => setDirection(button.dataset.direction)));
     restartButton.addEventListener('click', reset);
+    boostButton.addEventListener('click', activateBoost);
     canvas.addEventListener('pointerdown', () => canvas.focus({ preventScroll: true }));
     reset();
   </script>
